@@ -9,21 +9,12 @@ struct RunOptions {
     user: Option<String>,
     group: Option<String>,
     work_dir: Option<String>,
-    exit_timeout: Option<i64>
+    exit_timeout: i64
 }
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    let env: Vec<(String, String)> = env::vars().collect();
-    println!("My pid is {}", process::id());
-    println!("Args: {:?}", args);
-    println!("Env: {:?}", env);
-
-    let args = vec![String::from("-alh")];
-    run(String::from("ls"), args, None);
-
-    let args = vec![];
-    run(String::from("env"), args, Some(env));
+    let args = vec![String::from("-f"),String::from("x.txt")];
+    run(String::from("tail"), args, None);
 }
 
 fn run(cmd: String,
@@ -34,7 +25,7 @@ fn run(cmd: String,
         user: None,
         group: None,
         work_dir: None,
-        exit_timeout: None
+        exit_timeout: 5
     };
     run_with_options(options, cmd, args);
 }
@@ -49,10 +40,37 @@ fn run_with_options(options: RunOptions, cmd: String, args: Vec<String>) {
         None => (),
         Some(group) => unsafe { libc::setgid(group.gid()); }
     };
-    // Setup process
+    match options.work_dir {
+        None => (),
+        Some(wdir) => {
+            let root = std::path::Path::new(&wdir);
+            std::env::set_current_dir(&root);
+        }
+    }
+    if process::id() == 1 {
+        run_as_pid1(cmd, args, options.env, options.exit_timeout);
+    } else {
+        execute_file(cmd, args, options.env);
+    }
+}
+
+fn execute_file(cmd: String, args: Vec<String>, env: Option<Vec<(String, String)>>) {
     let mut proc = process::Command::new(cmd);
     proc.args(args);
-    match options.env {
+    match env {
+        None => proc.env_clear(),
+        Some(e) => proc.envs(e)
+    };
+    match proc.status().expect("Failed to execute").code() {
+        Some(code) => process::exit(code),
+        None       => ()
+    }
+}
+
+fn run_as_pid1(cmd: String, args: Vec<String>, env: Option<Vec<(String, String)>>, timeout: i64) {
+    let mut proc = process::Command::new(cmd);
+    proc.args(args);
+    match env {
         None => proc.env_clear(),
         Some(e) => proc.envs(e)
     };
