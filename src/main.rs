@@ -40,26 +40,14 @@ fn run(cmd: String,
 }
 
 fn run_with_options(options: RunOptions, cmd: String, args: Vec<String>) {
-    let muser = match options.user {
-        Some(name) => users::get_user_by_name(&name),
-        None => None
-    };
-    let mgroup = match options.group {
-        Some(name) => users::get_group_by_name(&name),
-        None => None
-    };
     // Set user/group if set
-    match muser {
+    match options.user.and_then(|name|users::get_user_by_name(&name)) {
         None => (),
-        Some(user) => unsafe {
-            libc::setuid(user.uid());
-        }
+        Some(user) => unsafe { libc::setuid(user.uid()); }
     };
-    match mgroup {
+    match options.group.and_then(|name|users::get_group_by_name(&name)) {
         None => (),
-        Some(group) => unsafe {
-            libc::setgid(group.gid());
-        }
+        Some(group) => unsafe { libc::setgid(group.gid()); }
     };
     // Setup process
     let mut proc = process::Command::new(cmd);
