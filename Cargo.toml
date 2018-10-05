@@ -1,0 +1,6 @@
+[package]
+name = "pid1-rust"
+version = "0.1.0"
+authors = ["Chris Done <chrisdone@gmail.com>"]
+
+[dependencies]
