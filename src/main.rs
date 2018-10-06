@@ -23,6 +23,7 @@ struct RunOptions {
 enum RunError {
     Nix(nix::Error),
     Io(std::io::Error),
+    Process(std::io::Error)
 }
 
 impl std::convert::From<std::io::Error> for RunError {
@@ -41,7 +42,8 @@ impl fmt::Display for RunError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             RunError::Nix(err) => write!(f, "UNIX call: {}", err),
-            RunError::Io(err) => write!(f, "I/O call: {}", err)
+            RunError::Io(err) => write!(f, "I/O call: {}", err),
+            RunError::Process(err) => write!(f, "Process error: {}", err)
         }
     }
 }
@@ -56,7 +58,16 @@ enum RunResult {
 fn main() {
     let args = vec![String::from("-f"),String::from("x.txt")];
     match run(String::from("tail"), args, None) {
-        Ok(_) => println!("Process exited successfully."),
+        Ok(run_result) =>
+            match run_result {
+                RunResult::Exited(status) => println!("Process exited with status: {}", status),
+                RunResult::Signalled(signal) =>
+                    match signal {
+                        None => println!("Process was signalled to end (signal unknown)."),
+                        Some(sig) => println!("Process was signalled to end with signal: {:?}", sig)
+                    }
+                RunResult::ChanEnded => println!("Thread running the process stopped sending updates!")
+            },
         Err(err) => println!("Error in process: {}", err)
     }
 }
@@ -106,7 +117,7 @@ fn execute_file(cmd: String, args: Vec<String>, env: Option<Vec<(String, String)
         None => proc.env_clear(),
         Some(e) => proc.envs(e)
     };
-    proc.status().map_err(RunError::Io)
+    proc.status().map_err(RunError::Process)
 }
 
 fn run_as_pid1(cmd: String, args: Vec<String>, env: Option<Vec<(String, String)>>, timeout: i64) -> Result<RunResult, RunError> {
@@ -127,7 +138,7 @@ fn run_as_pid1(cmd: String, args: Vec<String>, env: Option<Vec<(String, String)>
             match result {
                 None => return Ok(RunResult::ChanEnded),
                 Some(exit_result) => {
-                    return exit_result.map(RunResult::Exited).map_err(RunError::Io)
+                    return exit_result.map(RunResult::Exited).map_err(RunError::Process)
                 }
             }
         }
