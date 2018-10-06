@@ -1,5 +1,4 @@
 extern crate users;
-extern crate libc;
 extern crate nix;
 
 #[macro_use]
@@ -93,7 +92,7 @@ fn run_with_options(options: RunOptions, cmd: String, args: Vec<String>) -> Resu
     };
     match options.group.and_then(|name|users::get_group_by_name(&name)) {
         None => (),
-        Some(group) => unsafe { libc::setgid(group.gid()); }
+        Some(group) => try!(nix::unistd::setgid(nix::unistd::Gid::from_raw(group.gid())))
     };
     match options.work_dir {
         None => (),
