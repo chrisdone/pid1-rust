@@ -55,8 +55,11 @@ enum RunResult {
 }
 
 fn main() {
-    let args = vec![String::from("-f"),String::from("x.txt")];
-    match run(String::from("tail"), args, None) {
+    let args = vec![
+        String::from("10")
+    ];
+    println!("Sleeping for 10...");
+    match run(String::from("sleep"), args, None) {
         Ok(run_result) =>
             match run_result {
                 RunResult::Exited(status) => println!("Process exited with status: {}", status),
@@ -101,8 +104,8 @@ fn run_with_options(options: RunOptions, cmd: String, args: Vec<String>) -> Resu
             try!(std::env::set_current_dir(&root))
         }
     }
-    let init = 1;
-    if process::id() == init {
+    if process::id() == 1 {
+        println!("Running as pid1 ...");
         run_as_pid1(cmd, args, options.env, options.exit_timeout)
     } else {
         execute_file(cmd, args, options.env).map(RunResult::Exited)
@@ -110,13 +113,13 @@ fn run_with_options(options: RunOptions, cmd: String, args: Vec<String>) -> Resu
 }
 
 fn execute_file(cmd: String, args: Vec<String>, env: Option<Vec<(String, String)>>) -> Result<process::ExitStatus, RunError> {
-    let mut proc = process::Command::new(cmd);
-    proc.args(args);
+    let mut pro = process::Command::new(cmd);
+    pro.args(args);
     match env {
-        None => proc.env_clear(),
-        Some(e) => proc.envs(e)
+        None => pro.env_clear(),
+        Some(e) => pro.envs(e)
     };
-    proc.status().map_err(RunError::Process)
+    pro.status().map_err(RunError::Process)
 }
 
 fn run_as_pid1(cmd: String, args: Vec<String>, env: Option<Vec<(String, String)>>, timeout: i64) -> Result<RunResult, RunError> {
@@ -145,11 +148,11 @@ fn run_as_pid1(cmd: String, args: Vec<String>, env: Option<Vec<(String, String)>
 }
 
 fn execute_with_sender(sender: chan::Sender<std::result::Result<std::process::ExitStatus, std::io::Error>>, cmd: String, args: Vec<String>, env: Option<Vec<(String, String)>>, _timeout: i64) {
-    let mut proc = process::Command::new(cmd);
-    proc.args(args);
+    let mut pro = process::Command::new(cmd);
+    pro.args(args);
     match env {
-        None => proc.env_clear(),
-        Some(e) => proc.envs(e)
+        None => pro.env_clear(),
+        Some(e) => pro.envs(e)
     };
-    sender.send(proc.status())
+    sender.send(pro.status())
 }

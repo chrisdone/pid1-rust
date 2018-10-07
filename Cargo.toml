@@ -4,10 +4,7 @@ version = "0.1.0"
 authors = ["Chris Done <chrisdone@gmail.com>"]
 
 [dependencies]
-time = "0.1.12"
-regex = "0.1.41"
 users = "0.7.0"
-libc = "0.1"
 chan-signal = "0.3.2"
 chan = "0.1"
 nix = "0.10.0"
