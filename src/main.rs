@@ -8,13 +8,14 @@ extern crate chan_signal;
 use std::process;
 use std::thread;
 use std::fmt;
+use std::collections::HashMap;
 use chan_signal::Signal;
 
-struct RunOptions {
-    env: Option<Vec<(String, String)>>,
-    user: Option<String>,
-    group: Option<String>,
-    work_dir: Option<String>,
+struct RunOptions<'a> {
+    env: Option<&'a HashMap<&'a str, &'a str>>,
+    user: Option<&'a str>,
+    group: Option<&'a str>,
+    work_dir: Option<&'a str>,
     exit_timeout: i64
 }
 
@@ -22,7 +23,9 @@ struct RunOptions {
 enum RunError {
     Nix(nix::Error),
     Io(std::io::Error),
-    Process(std::io::Error)
+    Process(std::io::Error)// ,
+    // CouldntSetUid(uid),
+    // CouldntSetGid(gid)
 }
 
 impl std::convert::From<std::io::Error> for RunError {
@@ -76,10 +79,10 @@ fn main() {
 
 fn run(cmd: String,
        args: Vec<String>,
-       env: Option<Vec<(String, String)>>) -> Result<RunResult, RunError> {
+       env: Option<&HashMap<&str, &str>>) -> Result<RunResult, RunError> {
     let options: RunOptions = RunOptions {
         env: env,
-        user: None,
+        user: Some("hello"),
         group: None,
         work_dir: None,
         exit_timeout: 5
@@ -89,19 +92,22 @@ fn run(cmd: String,
 
 fn run_with_options(options: RunOptions, cmd: String, args: Vec<String>) -> Result<RunResult, RunError> {
     // Set user/group if set
-    match options.user.and_then(|name|users::get_user_by_name(&name)) {
+    // ANNOYING: (what's going on with this closure and returning?)
+    // FIXME: don't use and_then here:
+    // - need to pattern match on the None case (user-provided)
+    // - return from inside a closure just exits the closure
+    match options.user.and_then(|name|users::get_user_by_name(name)) {
         None => (),
-        Some(user) => try!(nix::unistd::setuid(nix::unistd::Uid::from_raw(user.uid())))
+        Some(user) => nix::unistd::setuid(nix::unistd::Uid::from_raw(user.uid()))?
     };
-    match options.group.and_then(|name|users::get_group_by_name(&name)) {
+    match options.group.and_then(|name|users::get_group_by_name(name)) {
         None => (),
-        Some(group) => try!(nix::unistd::setgid(nix::unistd::Gid::from_raw(group.gid())))
+        Some(group) => nix::unistd::setgid(nix::unistd::Gid::from_raw(group.gid()))?
     };
     match options.work_dir {
         None => (),
         Some(wdir) => {
-            let root = std::path::Path::new(&wdir);
-            try!(std::env::set_current_dir(&root))
+            std::env::set_current_dir(&(std::path::Path::new(wdir)))?
         }
     }
     if process::id() == 1 {
@@ -112,7 +118,8 @@ fn run_with_options(options: RunOptions, cmd: String, args: Vec<String>) -> Resu
     }
 }
 
-fn execute_file(cmd: String, args: Vec<String>, env: Option<Vec<(String, String)>>) -> Result<process::ExitStatus, RunError> {
+// FIXME: https://docs.rs/nix/0.10.0/nix/unistd/fn.execve.html
+fn execute_file(cmd: String, args: Vec<String>, env: Option<&HashMap<&str, &str>>) -> Result<process::ExitStatus, RunError> {
     let mut pro = process::Command::new(cmd);
     pro.args(args);
     match env {
@@ -122,14 +129,18 @@ fn execute_file(cmd: String, args: Vec<String>, env: Option<Vec<(String, String)
     pro.status().map_err(RunError::Process)
 }
 
-fn run_as_pid1(cmd: String, args: Vec<String>, env: Option<Vec<(String, String)>>, timeout: i64) -> Result<RunResult, RunError> {
+fn run_as_pid1(cmd: String, args: Vec<String>, env: Option<&HashMap<&str,&str>>, timeout: i64) -> Result<RunResult, RunError> {
     // Signal gets a value when the OS sent a INT or TERM signal.
     let signal = chan_signal::notify(&[Signal::INT, Signal::TERM]);
     // When our work is complete, send a sentinel value on `sdone`.
     let (sdone, rdone) = chan::sync(0);
 
+    let env2 = env.map(|x|x.iter().map(|(k,v)|(k.to_string(),v.to_string())).collect());
     // Run work.
-    thread::spawn(move || execute_with_sender(sdone, cmd, args, env, timeout));
+    thread::spawn(move || match env2 {
+        Some(env) => execute_with_sender(sdone, cmd, args, Some(&env), timeout),
+        None => execute_with_sender(sdone, cmd, args, None, timeout)
+    });
 
     // Wait for a signal or for work to be done.
     chan_select! {
@@ -147,7 +158,7 @@ fn run_as_pid1(cmd: String, args: Vec<String>, env: Option<Vec<(String, String)>
     }
 }
 
-fn execute_with_sender(sender: chan::Sender<std::result::Result<std::process::ExitStatus, std::io::Error>>, cmd: String, args: Vec<String>, env: Option<Vec<(String, String)>>, _timeout: i64) {
+fn execute_with_sender(sender: chan::Sender<std::result::Result<std::process::ExitStatus, std::io::Error>>, cmd: String, args: Vec<String>, env: Option<&HashMap<&str, &str>>, _timeout: i64) {
     let mut pro = process::Command::new(cmd);
     pro.args(args);
     match env {
